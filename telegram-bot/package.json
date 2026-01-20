@@ -1,0 +1,26 @@
+{
+    "name": "binance-crypto-monitor-telegram-bot",
+    "version": "1.0.0",
+    "description": "Telegram bot for Binance cryptocurrency monitoring",
+    "main": "bot.js",
+    "scripts": {
+        "start": "node bot.js",
+        "dev": "nodemon bot.js"
+    },
+    "keywords": [
+        "telegram",
+        "bot",
+        "binance",
+        "crypto"
+    ],
+    "author": "",
+    "license": "MIT",
+    "dependencies": {
+        "node-telegram-bot-api": "^0.64.0",
+        "axios": "^1.6.2",
+        "dotenv": "^16.3.1"
+    },
+    "devDependencies": {
+        "nodemon": "^3.0.2"
+    }
+}

@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="tr">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description"
+        content="Binance kripto para piyasası takip sistemi - Gerçek zamanlı fiyatlar, RSI, Stochastic RSI ve teknik analiz">
+    <title>Crypto Monitor - Binance Market Tracker</title>
+
+    <!-- Google Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet">
+
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/components.css">
+</head>
+
+<body>
+    <!-- Background Effects -->
+    <div class="background-gradient"></div>
+    <div class="background-pattern"></div>
+
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <div class="logo-icon">₿</div>
+                    <div class="logo-text">
+                        <h1>Crypto Monitor</h1>
+                        <span class="logo-subtitle">Binance Market Tracker</span>
+                    </div>
+                </div>
+
+                <nav class="nav">
+                    <button class="nav-btn active" data-view="dashboard">
+                        <span class="icon">📊</span>
+                        <span>Dashboard</span>
+                    </button>
+                    <button class="nav-btn" data-view="analysis">
+                        <span class="icon">📈</span>
+                        <span>Analiz</span>
+                    </button>
+                    <button class="theme-toggle-btn" id="themeToggle" title="Tema Değiştir">
+                        <span class="icon">🌙</span>
+                    </button>
+                    <button class="refresh-btn" id="refreshBtn" title="Verileri Yenile">
+                        <span class="icon">🔄</span>
+                    </button>
+                </nav>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            <!-- BTC Status Section -->
+            <section class="btc-status-section" id="btcStatusSection">
+                <div class="loading-skeleton btc-skeleton"></div>
+            </section>
+
+            <!-- Filters and Search -->
+            <section class="filters-section">
+                <div class="search-bar">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="searchInput" placeholder="Coin ara... (örn: BTC, ETH)" autocomplete="off">
+                </div>
+
+                <div class="filters">
+                    <select id="sortSelect" class="filter-select">
+                        <option value="volume">Hacme Göre</option>
+                        <option value="priceChange">Değişime Göre</option>
+                        <option value="price">Fiyata Göre</option>
+                        <option value="rsi">RSI'ya Göre</option>
+                    </select>
+
+                    <select id="filterSelect" class="filter-select">
+                        <option value="all">Tümü</option>
+                        <option value="gainers">Yükselenler</option>
+                        <option value="losers">Düşenler</option>
+                        <option value="oversold">Oversold (RSI < 30)</option>
+                        <option value="overbought">Overbought (RSI > 70)</option>
+                    </select>
+
+                    <div class="view-toggle">
+                        <button class="toggle-btn active" data-view="grid">
+                            <span>⊞</span>
+                        </button>
+                        <button class="toggle-btn" data-view="table">
+                            <span>☰</span>
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Coins Grid/Table -->
+            <section class="coins-section">
+                <div class="section-header">
+                    <h2>USDT Kripto Varlıklar</h2>
+                    <span class="coin-count" id="coinCount">Yükleniyor...</span>
+                </div>
+
+                <!-- Loading State -->
+                <div class="loading-container" id="loadingContainer">
+                    <div class="spinner"></div>
+                    <p>Veriler yükleniyor...</p>
+                </div>
+
+                <!-- Coins Container -->
+                <div class="coins-container" id="coinsContainer">
+                    <!-- Coins will be dynamically inserted here -->
+                </div>
+
+                <!-- Error State -->
+                <div class="error-container hidden" id="errorContainer">
+                    <div class="error-icon">⚠️</div>
+                    <h3>Bir Hata Oluştu</h3>
+                    <p id="errorMessage"></p>
+                    <button class="retry-btn" onclick="window.location.reload()">Tekrar Dene</button>
+                </div>
+            </section>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>
+                Veri Kaynağı: <strong>Binance API</strong> |
+                Son Güncelleme: <span id="lastUpdate">-</span> |
+                <span class="status-indicator" id="connectionStatus">
+                    <span class="dot"></span>
+                    <span class="text">Bağlı</span>
+                </span>
+            </p>
+        </div>
+    </footer>
+
+    <!-- Coin Detail Modal -->
+    <div class="modal hidden" id="coinModal">
+        <div class="modal-overlay" onclick="closeModal()"></div>
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">×</button>
+            <div id="modalBody">
+                <!-- Modal content will be inserted here -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Scripts -->
+    <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="js/api.js"></script>
+    <script src="js/components/table.js"></script>
+    <script src="js/components/btc-status.js"></script>
+    <script src="js/app.js"></script>
+</body>
+
+</html>
