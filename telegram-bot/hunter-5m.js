@@ -13,12 +13,12 @@ const processedSignals = new Map();
 const COOLDOWN_PERIOD = 30 * 60 * 1000;
 const TIMEFRAME = '5m';
 
-console.log('⚡ Scalper Hunter v2.0 (Trend & Hacim Odaklı) Aktif!');
+console.log('⚡ CoinKe V2.0 (Trend & Hacim Odaklı) Aktif!');
 
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     chatIds.add(chatId);
-    bot.sendMessage(chatId, "🚀 *Scalper Hunter v2.0 Aktif!*\n\nBu bir deneme sürecidir, süreç Gürol SARIOĞLU tarafından yürütülmektedir.");
+    bot.sendMessage(chatId, "🚀 *CoinKe V2.0 Aktif!*\n\nBu bir deneme sürecidir, süreç Gürol SARIOĞLU tarafından yürütülmektedir.");
 });
 
 async function performScan() {
@@ -94,16 +94,50 @@ async function checkCoin(symbol) {
 
 async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend) {
     let fr = "N/A";
+    let marketType = "Spot";
+    let longShortRatio = "N/A";
+    let liquidity = "N/A";
+
     try {
         const frRes = await axios.get(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`);
         fr = (parseFloat(frRes.data.lastFundingRate) * 100).toFixed(4) + '%';
-    } catch (e) { }
+        marketType = "Spot | Futures ⚡";
+    } catch (e) {
+        // If futures endpoint fails, it's likely spot only
+        marketType = "Spot Only ⚪";
+    }
+
+    // Long/Short Ratio
+    try {
+        const lsRes = await axios.get(`https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=${symbol}&period=5m&limit=1`);
+        if (lsRes.data && lsRes.data.length > 0) {
+            const longRatio = parseFloat(lsRes.data[0].longAccount);
+            const shortRatio = parseFloat(lsRes.data[0].shortAccount);
+            const longPct = (longRatio / (longRatio + shortRatio) * 100).toFixed(0);
+            const shortPct = (100 - longPct).toFixed(0);
+            longShortRatio = `${longPct}% / ${shortPct}%`;
+        }
+    } catch (e) {
+        // Long/Short data not available
+    }
+
+    // 24h Liquidity (using quote volume from 24hr ticker)
+    try {
+        const tickerRes = await axios.get(`https://fapi.binance.com/fapi/v1/ticker/24hr?symbol=${symbol}`);
+        if (tickerRes.data && tickerRes.data.quoteVolume) {
+            const volumeInMillion = (parseFloat(tickerRes.data.quoteVolume) / 1000000).toFixed(1);
+            liquidity = `$${volumeInMillion}M`;
+        }
+    } catch (e) {
+        // Liquidity data not available
+    }
 
     const now = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
     const binanceUrl = `https://www.binance.com/en/trade/${symbol.replace('USDT', '')}_USDT?type=spot`;
 
     const message = `📡 *${type} SİNYALİ: #${symbol}*\n` +
         `━━━━━━━━━━━━━━━\n` +
+        `🏪 *Market:* ${marketType}\n` +
         `💰 *Fiyat:* ${price.toFixed(4)}\n` +
         `💰 *Önceki Fiyat:* ${prev.toFixed(4)}\n` +
         `📊 *Boost Value:* ${boost > 0 ? '+' : ''}${boost}%\n` +
@@ -113,9 +147,12 @@ async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend
         `📈 *Trend Durumu:* ${trend}\n` +
         `🔥 *Hacim:* ${vol}\n` +
         `💸 *Funding Rate (FR):* ${fr}\n` +
+        `⚖️ *Long/Short:* ${longShortRatio}\n` +
+        `💧 *24h Likidite:* ${liquidity}\n` +
         `━━━━━━━━━━━━━━━\n` +
         `💡 *Scalp Önerisi:* ${type.includes('Buy') ? 'Long İşlem' : 'Short İşlem'} için onay beklenebilir.\n\n` +
         `🔗 [Binance'de İncele](${binanceUrl})  |  ⏰ ${now}`;
+
 
     for (const id of chatIds) {
         bot.sendMessage(id, message, {
