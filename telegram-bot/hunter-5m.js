@@ -1,6 +1,7 @@
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 const dotenv = require('dotenv');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 // Load config
 dotenv.config();
@@ -12,6 +13,17 @@ const chatIds = new Set();
 const processedSignals = new Map();
 const COOLDOWN_PERIOD = 30 * 60 * 1000;
 const TIMEFRAME = '5m';
+
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({
+    model: 'gemini-2.0-flash-exp',
+    generationConfig: {
+        temperature: 0.7,
+        topP: 0.95,
+        maxOutputTokens: 500,
+    }
+});
 
 console.log('⚡ CoinKe V2.0 (Trend & Hacim Odaklı) Aktif!');
 
@@ -71,6 +83,9 @@ async function checkCoin(symbol) {
         const prev = klines[klines.length - 2].close;
         const boost = ((price - prev) / prev * 100).toFixed(2);
 
+        // 3. Divergence Detection
+        const divergence = detectDivergence(klines, rsi, stoch.k);
+
         let signalType = null;
 
         // SCALPER CRITERIA v2.0
@@ -85,14 +100,109 @@ async function checkCoin(symbol) {
                 let volStatus = isHighVolume ? "🔥 YÜKSEK HACİM" : "Normal";
                 let trendStatus = lastAdx > 25 ? "💪 Güçlü Trend" : "Zayıf Trend";
 
-                await sendAlert(symbol, signalType, boost, price, prev, lastRsi, lastK, lastD, volStatus, trendStatus);
+                await sendAlert(symbol, signalType, boost, price, prev, lastRsi, lastK, lastD, volStatus, trendStatus, divergence);
                 return true;
             }
         }
     } catch (e) { return false; }
 }
 
-async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend) {
+// AI Analysis Function - Gemini 2.0 Powered
+async function getAIAnalysis(symbol, price, prev, rsi, k, d, divergenceType, type) {
+    try {
+        // Gemini prompt
+        const prompt = `Sen profesyonel bir kripto scalping uzmanısın. Aşağıdaki coin için kısa vadeli (15-60 dakika) analiz yap:
+
+Coin: ${symbol}
+Mevcut Fiyat: $${price}
+Önceki Fiyat: $${prev}
+RSI: ${Math.round(rsi)}
+Stoch K/D: ${Math.round(k)}/${Math.round(d)}
+Divergence: ${divergenceType === 'bullish' ? 'BULLISH (yukarış)' : 'BEARISH (düşüş)'}
+Sinyal: ${type}
+
+ÖNEMLİ: Entry (giriş) fiyatı belirle! 
+- Eğer bullish ise: yakın destek veya küçük pullback seviyesi
+- Eğer bearish ise: yakın direnç veya küçük rally seviyesi
+- Entry mevcut fiyattan %0.3-1.0 farklı olabilir
+
+Kısa ve öz yanıt ver. Format:
+
+ENTRY: [giriş yapılacak fiyat, sayı]
+HEDEF: [hedef fiyat, sayı]
+STOP: [stop loss fiyat, sayı]
+R/R: 1:[oran]
+SKOR: [güven 0-100]
+SÜRE: [15-30 formatında dakika]
+YORUM: [max 2 cümle Türkçe, entry zamanı ve strateji]`;
+
+        const result = await model.generateContent(prompt);
+        const text = result.response.text();
+
+        // Parse Gemini response
+        const entryMatch = text.match(/ENTRY[:\s]+\$?([\d.]+)/);
+        const hedefMatch = text.match(/HEDEF[:\s]+\$?([\d.]+)/);
+        const stopMatch = text.match(/STOP[:\s]+\$?([\d.]+)/);
+        const rrMatch = text.match(/R\/R[:\s]+(1:[\d.]+)/);
+        const skorMatch = text.match(/SKOR[:\s]+(\d+)/);
+        const sureMatch = text.match(/SÜRE[:\s]+([\d-]+)/);
+        const yorumMatch = text.match(/YORUM[:\s]+(.+?)(?=\n|$)/s);
+
+        // Calculate entry if AI didn't provide
+        let entryFiyat;
+        if (entryMatch) {
+            entryFiyat = parseFloat(entryMatch[1]);
+        } else {
+            // Fallback: conservative entry calculation
+            if (divergenceType === 'bullish') {
+                // For bullish, suggest entry slightly below current (wait for dip)
+                entryFiyat = price * 0.997; // 0.3% below
+            } else {
+                // For bearish, suggest entry slightly above current (wait for bounce)
+                entryFiyat = price * 1.003; // 0.3% above
+            }
+        }
+
+        const hedefFiyat = hedefMatch ? parseFloat(hedefMatch[1]) : price * 1.015;
+        const stopLoss = stopMatch ? parseFloat(stopMatch[1]) : price * 0.995;
+        const guvenSkoru = skorMatch ? parseInt(skorMatch[1]) : 75;
+
+        console.log(`✅ Gemini AI: ${symbol} (Güven: %${guvenSkoru})`);
+
+        return {
+            entryFiyat,
+            hedefFiyat,
+            stopLoss,
+            riskReward: rrMatch ? rrMatch[1] : '1:2.0',
+            guvenSkoru,
+            sure: (sureMatch ? sureMatch[1] : '20-40') + ' dk',
+            yorum: yorumMatch ? yorumMatch[1].trim() : 'Divergence teyit bekleyin, hacim artışı gözlemleyin.'
+        };
+    } catch (error) {
+        console.error('❌ Gemini AI Hatası:', error.message);
+
+        // Fallback to simple calculation if Gemini fails
+        const targetPct = divergenceType === 'bullish' ? 1.5 : -1.5;
+        const hedefFiyat = price * (1 + targetPct / 100);
+        const stopLoss = price * (1 - (targetPct > 0 ? 0.6 : -0.6) / 100);
+
+        console.log(`⚠️ Fallback Pattern AI kullanıldı`);
+
+        const fallbackEntry = divergenceType === 'bullish' ? price * 0.997 : price * 1.003;
+
+        return {
+            entryFiyat: fallbackEntry,
+            hedefFiyat,
+            stopLoss,
+            riskReward: '1:2.5',
+            guvenSkoru: 70,
+            sure: '20-40 dk',
+            yorum: `${divergenceType === 'bullish' ? 'Bullish' : 'Bearish'} divergence tespit edildi. Teyit bekleyin.`
+        };
+    }
+}
+
+async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend, divergence) {
     let fr = "N/A";
     let marketType = "Spot";
     let longShortRatio = "N/A";
@@ -135,12 +245,59 @@ async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend
     const now = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
     const binanceUrl = `https://www.binance.com/en/trade/${symbol.replace('USDT', '')}_USDT?type=spot`;
 
-    const message = `📡 *${type} SİNYALİ: #${symbol}*\n` +
+    // Divergence warning message
+    let divergenceWarning = '';
+    if (divergence) {
+        if (divergence === 'bullish') {
+            divergenceWarning = `⚠️ *UYARI: RSI ve SRSI'da YUKARIŞ UYUMSUZLUĞU var!* 🟢\n`;
+        } else if (divergence === 'bearish') {
+            divergenceWarning = `⚠️ *UYARI: RSI ve SRSI'da DÜŞÜŞ UYUMSUZLUĞU var!* 🔴\n`;
+        }
+    }
+
+    // AI Analysis (only if divergence detected)
+    let aiSection = '';
+    let aiCommentary = '';
+    if (divergence) {
+        console.log(`🤖 AI Analizi başlatılıyor: ${symbol}`);
+        const aiData = await getAIAnalysis(symbol, price, prev, rsi, k, d, divergence, type);
+
+        if (aiData && aiData.hedefFiyat) {
+            // AI prediction section (between Önceki Fiyat and Boost Value)
+            const entryChange = aiData.entryFiyat ? ((aiData.entryFiyat - price) / price * 100).toFixed(2) : '0.00';
+            const hedefChange = ((aiData.hedefFiyat - price) / price * 100).toFixed(2);
+            const stopChange = aiData.stopLoss ? ((aiData.stopLoss - price) / price * 100).toFixed(2) : 'N/A';
+
+            let skorEmoji = '⭐';
+            if (aiData.guvenSkoru >= 80) skorEmoji = '🔥';
+            else if (aiData.guvenSkoru >= 60) skorEmoji = '⭐';
+            else skorEmoji = '⚠️';
+
+            aiSection = `\n🤖 *AI TAHMİNİ:*\n` +
+                `📍 *Entry (Giriş):* $${aiData.entryFiyat ? aiData.entryFiyat.toFixed(4) : price.toFixed(4)} (${entryChange > 0 ? '+' : ''}${entryChange}%)\n` +
+                `🎯 *Hedef Fiyat:* $${aiData.hedefFiyat.toFixed(4)} (${hedefChange > 0 ? '+' : ''}${hedefChange}%)\n` +
+                `🛑 *Stop Loss:* ${aiData.stopLoss ? '$' + aiData.stopLoss.toFixed(4) + ' (' + stopChange + '%)' : 'N/A'}\n` +
+                `⚖️ *Risk/Reward:* ${aiData.riskReward}\n` +
+                `${skorEmoji} *Güven Skoru:* %${aiData.guvenSkoru || 'N/A'}\n` +
+                `⏱️ *Tahmini Süre:* ${aiData.sure}\n`;
+
+            // AI commentary (after Scalp Önerisi)
+            aiCommentary = `\n💬 *AI Yorumu:* ${aiData.yorum}\n`;
+        }
+    }
+
+    // Clean symbol - remove non-ASCII characters (Chinese/Japanese coins)
+    const cleanSymbol = symbol.replace(/[^\x00-\x7F]/g, '');
+
+    const message = `📡 *${type} SİNYALİ: #${cleanSymbol}*\n` +
         `━━━━━━━━━━━━━━━\n` +
+        divergenceWarning +
+        `💎 *Coin:* ${symbol}\n` +
         `🏪 *Market:* ${marketType}\n` +
         `💰 *Fiyat:* ${price.toFixed(4)}\n` +
-        `💰 *Önceki Fiyat:* ${prev.toFixed(4)}\n` +
-        `📊 *Boost Value:* ${boost > 0 ? '+' : ''}${boost}%\n` +
+        `💰 *Önceki Fiyat:* ${prev.toFixed(4)}` +
+        aiSection +
+        `\n📊 *Boost Value:* ${boost > 0 ? '+' : ''}${boost}%\n` +
         `⚠️ *RSI:* ${Math.round(rsi)}\n` +
         `⚠️ *Stochastic (K/D):* ${Math.round(k)}/${Math.round(d)}\n` +
         `📉 *Trend Değeri (ADX):* ${Math.round(trend === "💪 Güçlü Trend" ? 1 : 0)}\n` +
@@ -150,8 +307,9 @@ async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend
         `⚖️ *Long/Short:* ${longShortRatio}\n` +
         `💧 *24h Likidite:* ${liquidity}\n` +
         `━━━━━━━━━━━━━━━\n` +
-        `💡 *Scalp Önerisi:* ${type.includes('Buy') ? 'Long İşlem' : 'Short İşlem'} için onay beklenebilir.\n\n` +
-        `🔗 [Binance'de İncele](${binanceUrl})  |  ⏰ ${now}`;
+        `💡 *Scalp Önerisi:* ${type.includes('Buy') ? 'Long İşlem' : 'Short İşlem'} için onay beklenebilir.` +
+        aiCommentary +
+        `\n🔗 [Binance'de İncele](${binanceUrl})  |  ⏰ ${now}`;
 
 
     for (const id of chatIds) {
@@ -218,6 +376,48 @@ function calculateADX(d, p) {
     let adx = [dx.slice(0, p).reduce((a, b) => a + b, 0) / p];
     for (let i = p; i < dx.length; i++) adx.push((adx[adx.length - 1] * (p - 1) + dx[i]) / p);
     return adx;
+}
+
+// Divergence Detection Function
+function detectDivergence(klines, rsi, stochK) {
+    const lookback = 10; // Look back 10 candles
+    if (klines.length < lookback + 5 || rsi.length < lookback + 5) return null;
+
+    // Get recent data
+    const recentPrices = klines.slice(-lookback).map(k => k.close);
+    const recentRSI = rsi.slice(-lookback);
+    const recentStochK = stochK.slice(-lookback);
+
+    // Calculate price trend (comparing first half vs second half)
+    const midPoint = Math.floor(lookback / 2);
+    const earlyPriceAvg = recentPrices.slice(0, midPoint).reduce((a, b) => a + b, 0) / midPoint;
+    const latePriceAvg = recentPrices.slice(midPoint).reduce((a, b) => a + b, 0) / (lookback - midPoint);
+    const priceTrend = latePriceAvg - earlyPriceAvg;
+
+    // Calculate RSI trend
+    const earlyRSIAvg = recentRSI.slice(0, midPoint).reduce((a, b) => a + b, 0) / midPoint;
+    const lateRSIAvg = recentRSI.slice(midPoint).reduce((a, b) => a + b, 0) / (lookback - midPoint);
+    const rsiTrend = lateRSIAvg - earlyRSIAvg;
+
+    // Calculate StochK trend
+    const earlyStochAvg = recentStochK.slice(0, midPoint).reduce((a, b) => a + b, 0) / midPoint;
+    const lateStochAvg = recentStochK.slice(midPoint).reduce((a, b) => a + b, 0) / (lookback - midPoint);
+    const stochTrend = lateStochAvg - earlyStochAvg;
+
+    // Detect divergence (price and indicators moving in opposite directions)
+    const threshold = 0.001; // Minimum trend strength to consider
+
+    // Bullish Divergence: Price falling but RSI/Stoch rising
+    if (priceTrend < -threshold && (rsiTrend > threshold || stochTrend > threshold)) {
+        return 'bullish';
+    }
+
+    // Bearish Divergence: Price rising but RSI/Stoch falling
+    if (priceTrend > threshold && (rsiTrend < -threshold || stochTrend < -threshold)) {
+        return 'bearish';
+    }
+
+    return null;
 }
 
 setInterval(performScan, 2 * 60 * 1000);
