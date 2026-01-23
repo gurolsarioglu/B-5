@@ -171,7 +171,7 @@ async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend
         `• *1 Saatlik RSI:* ${rsi1h}\n` +
         `• *4 Saatlik RSI:* ${rsi4h}\n` +
         `• *Günlük RSI:* ${rsi1d}\n` +
-        `• *Stoch:* ${Math.round(k)}/${Math.round(d)}\n` +
+        `• *Stoch:* ${Math.round(k)}(K)/${Math.round(d)}(D)\n` +
         `• *Hacim:* ${vol}\n` +
         `──────────────────\n` +
         `🔗 [Binance Futures](${binanceUrl}) | ⏰ ${now}`;
