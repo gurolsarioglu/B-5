@@ -163,12 +163,9 @@ async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend
     }
 
     const cleanSymbol = symbol.replace(/[^\x00-\x7F]/g, '');
-    const demaWarning = demaAlert ? `⚖️ *UYARI: DEMA 9 Yan Yana Mum (Konsolidasyon)*\n` : '';
 
     const message = `${type.includes('Buy') ? '📈' : '📉'} *[15DK] #${cleanSymbol} ${type.toUpperCase()}*\n` +
         `──────────────────\n` +
-        (divergenceWarning ? `${divergenceWarning}\n` : '') +
-        (demaWarning ? demaWarning : '') +
         `• *Fiyat:* ${price.toFixed(4)}\n` +
         `• *15dk RSI:* ${roundedRsi} ${rsiWarning} (Sinyal)\n` +
         `• *1 Saatlik RSI:* ${rsi1h}\n` +
