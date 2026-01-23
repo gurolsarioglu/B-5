@@ -201,16 +201,17 @@ bot.onText(/\/coins/, async (msg) => {
         const coins = data.data;
 
         // Build message
-        let message = '*💰 Top 10 Coin (Hacme Göre)*\n\n';
+        let message = '💰 *TOP 10 COIN (Hacim)*\n';
+        message += '──────────────────\n\n';
 
         coins.forEach((coin, index) => {
-            const emoji = getChangeEmoji(coin.priceChangePercent);
+            const emoji = coin.priceChangePercent >= 0 ? '📈' : '📉';
             const changeSign = coin.priceChangePercent >= 0 ? '+' : '';
 
             message += `*${index + 1}. ${coin.coinName}*\n`;
-            message += `   Fiyat: $${formatPrice(coin.currentPrice)}\n`;
-            message += `   ${emoji} ${changeSign}${coin.priceChangePercent.toFixed(2)}% (24s)\n`;
-            message += `   Hacim: $${formatVolume(coin.quoteVolume)}\n\n`;
+            message += `• Fiyat: $${formatPrice(coin.currentPrice)}\n`;
+            message += `• Değişim: ${emoji} ${changeSign}${coin.priceChangePercent.toFixed(2)}%\n`;
+            message += `• Hacim: $${formatVolume(coin.quoteVolume)}\n\n`;
         });
 
         message += `_Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}_`;
@@ -254,22 +255,22 @@ bot.onText(/\/btc/, async (msg) => {
         const changeSign = btc.priceChange24h >= 0 ? '+' : '';
         const rsiEmoji = getRSIEmoji(btc.rsi);
 
-        let message = `*₿ Bitcoin (BTC) Analizi*\n\n`;
-        message += `*Fiyat:* $${formatPrice(btc.currentPrice)}\n`;
-        message += `*24s Değişim:* ${emoji} ${changeSign}${btc.priceChange24h}%\n`;
-        message += `*Trend:* ${btc.trend}\n\n`;
+        let message = `₿ *BITCOIN (BTC) ANALİZİ*\n`;
+        message += `──────────────────\n\n`;
+        message += `• *Fiyat:* $${formatPrice(btc.currentPrice)}\n`;
+        message += `• *24s Değişim:* ${emoji} ${changeSign}${btc.priceChange24h}%\n`;
+        message += `• *Trend:* ${btc.trend}\n\n`;
 
-        message += `*📊 Teknik Göstergeler*\n`;
-        message += `${rsiEmoji} *RSI:* ${btc.rsi ? btc.rsi.toFixed(2) : 'N/A'} (${btc.rsiInterpretation || 'N/A'})\n`;
-        message += `*Stoch RSI:* ${btc.stochRSI ? btc.stochRSI.toFixed(2) : 'N/A'}\n\n`;
+        message += `📊 *TEKNİK GÖSTERGELER*\n`;
+        message += `• *RSI:* ${btc.rsi ? btc.rsi.toFixed(2) : 'N/A'} (${btc.rsiInterpretation || 'N/A'})\n`;
+        message += `• *Stoch RSI:* ${btc.stochRSI ? btc.stochRSI.toFixed(2) : 'N/A'}\n\n`;
 
-        message += `*💰 24 Saat Verileri*\n`;
-        message += `Yüksek: $${formatPrice(btc.high24h)}\n`;
-        message += `Düşük: $${formatPrice(btc.low24h)}\n`;
-        message += `Hacim: $${formatVolume(btc.volume24h)}\n\n`;
+        message += `💰 *24 SAAT VERİLERİ*\n`;
+        message += `• Yüksek: $${formatPrice(btc.high24h)} | Düşük: $${formatPrice(btc.low24h)}\n`;
+        message += `• Hacim: $${formatVolume(btc.volume24h)}\n\n`;
 
-        message += `*📝 Analiz:*\n_${btc.commentary}_\n\n`;
-        message += `_${new Date().toLocaleTimeString('tr-TR')}_`;
+        message += `📝 *ANALİZ:*\n_${btc.commentary}_\n\n`;
+        message += `⏰ ${new Date().toLocaleTimeString('tr-TR')}`;
 
         bot.deleteMessage(chatId, loadingMsg.message_id);
 
@@ -304,13 +305,14 @@ bot.onText(/\/drops/, async (msg) => {
         const data = await fetchAPI('/top-drops?limit=10');
         const coins = data.data;
 
-        let message = '*📉 En Çok Düşen 10 Coin*\n\n';
+        let message = '📉 *EN ÇOK DÜŞEN 10 COIN*\n';
+        message += '──────────────────\n\n';
 
         coins.forEach((coin, index) => {
             message += `*${index + 1}. ${coin.coinName}*\n`;
-            message += `   Fiyat: $${formatPrice(coin.currentPrice)}\n`;
-            message += `   📉 ${coin.priceChangePercent.toFixed(2)}% (24s)\n`;
-            message += `   Hacim: $${formatVolume(coin.quoteVolume)}\n\n`;
+            message += `• Fiyat: $${formatPrice(coin.currentPrice)}\n`;
+            message += `• Değişim: 📉 ${coin.priceChangePercent.toFixed(2)}%\n`;
+            message += `• Hacim: $${formatVolume(coin.quoteVolume)}\n\n`;
         });
 
         message += `_Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}_`;
@@ -348,16 +350,17 @@ bot.onText(/\/volume/, async (msg) => {
         const data = await fetchAPI('/top-volume?limit=10');
         const coins = data.data;
 
-        let message = '*📊 En Yüksek Hacimli 10 Coin*\n\n';
+        let message = '📊 *EN YÜKSEK HACİMLİ 10 COIN*\n';
+        message += '──────────────────\n\n';
 
         coins.forEach((coin, index) => {
-            const emoji = getChangeEmoji(coin.priceChangePercent);
+            const emoji = coin.priceChangePercent >= 0 ? '📈' : '📉';
             const changeSign = coin.priceChangePercent >= 0 ? '+' : '';
 
             message += `*${index + 1}. ${coin.coinName}*\n`;
-            message += `   Hacim: $${formatVolume(coin.quoteVolume)}\n`;
-            message += `   Fiyat: $${formatPrice(coin.currentPrice)}\n`;
-            message += `   ${emoji} ${changeSign}${coin.priceChangePercent.toFixed(2)}%\n\n`;
+            message += `• Hacim: $${formatVolume(coin.quoteVolume)}\n`;
+            message += `• Fiyat: $${formatPrice(coin.currentPrice)}\n`;
+            message += `• Değişim: ${emoji} ${changeSign}${coin.priceChangePercent.toFixed(2)}%\n\n`;
         });
 
         message += `_Son güncelleme: ${new Date().toLocaleTimeString('tr-TR')}_`;
@@ -404,30 +407,24 @@ bot.onText(/\/analyze (.+)/, async (msg, match) => {
         const changeSign = coin.priceChangePercent >= 0 ? '+' : '';
         const rsiEmoji = getRSIEmoji(indicators.rsi);
 
-        let message = `*${coin.coinName} Detaylı Analiz*\n\n`;
-        message += `*Fiyat Bilgileri*\n`;
-        message += `Anlık: $${formatPrice(coin.currentPrice)}\n`;
-        message += `Değişim: ${emoji} ${changeSign}${coin.priceChangePercent.toFixed(2)}%\n`;
-        message += `Önceki: $${formatPrice(coin.previousPrice)}\n\n`;
+        let message = `📊 *${coin.coinName} ANALİZ*\n`;
+        message += `──────────────────\n\n`;
+        message += `• *Fiyat:* $${formatPrice(coin.currentPrice)}\n`;
+        message += `• *Değişim:* ${emoji} ${changeSign}${coin.priceChangePercent.toFixed(2)}%\n`;
+        message += `• *24s Yüksek/Düşük:* $${formatPrice(coin.high24h)} / $${formatPrice(coin.low24h)}\n`;
+        message += `• *Hacim:* $${formatVolume(coin.quoteVolume)}\n\n`;
 
-        message += `*24s Veriler*\n`;
-        message += `Yüksek: $${formatPrice(coin.high24h)}\n`;
-        message += `Düşük: $${formatPrice(coin.low24h)}\n`;
-        message += `Hacim: $${formatVolume(coin.quoteVolume)}\n\n`;
-
-        message += `*📊 Teknik Göstergeler*\n`;
-        message += `${rsiEmoji} RSI: ${indicators.rsi ? indicators.rsi.toFixed(2) : 'N/A'}\n`;
-        message += `  (${indicators.rsiInterpretation || 'N/A'})\n`;
-        message += `Stoch RSI: ${indicators.stochRSI ? indicators.stochRSI.toFixed(2) : 'N/A'}\n`;
-        message += `  (${indicators.stochRSIInterpretation || 'N/A'})\n\n`;
+        message += `📊 *TEKNİK GÖSTERGELER*\n`;
+        message += `• RSI: ${indicators.rsi ? indicators.rsi.toFixed(2) : 'N/A'} (${indicators.rsiInterpretation || 'N/A'})\n`;
+        message += `• Stoch RSI: ${indicators.stochRSI ? indicators.stochRSI.toFixed(2) : 'N/A'} (${indicators.stochRSIInterpretation || 'N/A'})\n\n`;
 
         if (indicators.sma7) {
-            message += `*Hareketli Ortalamalar*\n`;
-            message += `SMA(7): $${formatPrice(indicators.sma7)}\n`;
-            message += `EMA(7): $${formatPrice(indicators.ema7)}\n\n`;
+            message += `📈 *HAREKETLİ ORTALAMALAR*\n`;
+            message += `• SMA(7): $${formatPrice(indicators.sma7)}\n`;
+            message += `• EMA(7): $${formatPrice(indicators.ema7)}\n\n`;
         }
 
-        message += `_${new Date().toLocaleTimeString('tr-TR')}_`;
+        message += `⏰ ${new Date().toLocaleTimeString('tr-TR')}`;
 
         bot.deleteMessage(chatId, loadingMsg.message_id);
 
