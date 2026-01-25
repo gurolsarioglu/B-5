@@ -1,9 +1,10 @@
-require('dotenv').config();
+const path = require('path');
+require('dotenv').config({ path: path.join(__dirname, '.env') });
 const TelegramBot = require('node-telegram-bot-api');
 const axios = require('axios');
 
 // Bot Configuration
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN;
+const BOT_TOKEN = process.env.MAIN_BOT_TOKEN;
 const API_BASE_URL = process.env.API_BASE_URL || 'http://localhost:3000/api';
 
 if (!BOT_TOKEN) {

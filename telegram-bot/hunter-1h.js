@@ -7,37 +7,54 @@ const path = require('path');
 // Load config
 dotenv.config({ path: path.join(__dirname, '.env') });
 
-const token = process.env.SCALPER_5M_TOKEN;
+// Token from .env for 1h bot
+const token = process.env.HUNTER_1H_TOKEN;
 const bot = new TelegramBot(token, { polling: true });
 
 const chatIds = new Set();
 const processedSignals = new Map();
-const COOLDOWN_PERIOD = 45 * 60 * 1000; // Cooldown for 15m signals
-const TIMEFRAME = '15m';
+const COOLDOWN_PERIOD = 3 * 60 * 60 * 1000; // 3 hours cooldown for 1h signals
+const TIMEFRAME = '1h';
 
-// Initialize Gemini AI (Kept inactive as requested)
-// const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
-// const model = genAI.getGenerativeModel({
-//     model: 'gemini-2.0-flash-exp'
-// });
-
-console.log('⚡ CoinKe V2.0 (15dk & Futures) Aktif!');
+console.log('⚡ CoinKe V2.0 (1 Saatlik & Futures) Aktif!');
 
 bot.onText(/\/start/, (msg) => {
     const chatId = msg.chat.id;
     chatIds.add(chatId);
-    console.log(`✅ Yeni kayıt: ${chatId} (${msg.from.first_name || 'Anonim'})`);
-    bot.sendMessage(chatId, "🚀 *CoinKe V2.0 (15m) Aktif!*\n\nHer 15 dakikalık mum açılışında tüm Futures çiftlerini tarıyorum.");
+    console.log(`✅ Yeni kayıt (1H): ${chatId} (${msg.from.first_name || 'Anonim'})`);
+    bot.sendMessage(chatId, "🚀 *CoinKe V2.0 (1S) Aktif!*\n\nHer 1 saatlik mum açılışında tüm Futures çiftlerini tarıyorum.");
 });
 
 /**
- * Fetch all active USDT Futures symbols
+ * Fetch all active USDT Futures symbols and filter out delisted/leverage tokens
  */
+let activeTradingPairs = new Set();
+async function loadActiveTradingPairs() {
+    try {
+        console.log('🔄 Exchange Info yüklüyor (1H)...');
+        const res = await axios.get('https://api.binance.com/api/v3/exchangeInfo');
+        const tradingPairs = res.data.symbols
+            .filter(s => s.status === 'TRADING' && s.symbol.endsWith('USDT'))
+            .filter(s => {
+                const symbol = s.symbol;
+                return !symbol.includes('BULL') && !symbol.includes('BEAR') &&
+                    !symbol.includes('UP') && !symbol.includes('DOWN');
+            })
+            .map(s => s.symbol);
+
+        activeTradingPairs = new Set(tradingPairs);
+        console.log(`✅ ${activeTradingPairs.size} aktif USDT çifti yüklendi (1H)`);
+    } catch (e) {
+        console.error('❌ Exchange Info yüklenemedi:', e.message);
+    }
+}
+
 async function getFuturesSymbols() {
     try {
         const res = await axios.get('https://fapi.binance.com/fapi/v1/exchangeInfo');
         return res.data.symbols
             .filter(s => s.quoteAsset === 'USDT' && s.status === 'TRADING' && s.contractType === 'PERPETUAL')
+            .filter(s => activeTradingPairs.has(s.symbol)) // Delist filtresi
             .map(s => s.symbol);
     } catch (e) {
         console.error('Sembol listesi alınamadı:', e.message);
@@ -45,10 +62,23 @@ async function getFuturesSymbols() {
     }
 }
 
+// Bot başlatıldığında yükle
+loadActiveTradingPairs();
+
+
+// Global trackers for summary
+let lowestRSI = [];
+let highestRSI = [];
+
 async function performScan() {
     if (chatIds.size === 0) return;
+
+    // Reset trackers
+    lowestRSI = [];
+    highestRSI = [];
+
     try {
-        console.log(`🔍 [${new Date().toLocaleTimeString()}] 15dk Futures Taraması Başlıyor...`);
+        console.log(`🔍 [${new Date().toLocaleTimeString()}] 1sa Futures Taraması Başlıyor...`);
         const symbols = await getFuturesSymbols();
         console.log(`📈 Toplam ${symbols.length} aktif Futures çifti taranacak.`);
 
@@ -56,21 +86,100 @@ async function performScan() {
             await checkCoin(symbol);
             await new Promise(r => setTimeout(r, 60)); // API limitlerini korumak için küçük bekleme
         }
+
+
+        // Sort and Log Summary
+        lowestRSI.sort((a, b) => a.rsi - b.rsi);
+        highestRSI.sort((a, b) => b.rsi - a.rsi);
+
         console.log(`✅ [${new Date().toLocaleTimeString()}] Tarama Tamamlandı.`);
+
+        console.log('\n📉 EN DÜŞÜK RSI (Oversold Candidates):');
+        lowestRSI.slice(0, 3).forEach(c => console.log(`   #${c.symbol}: ${c.rsi.toFixed(2)}`));
+
+        console.log('\n📈 EN YÜKSEK RSI (Overbought Candidates):');
+        highestRSI.slice(0, 3).forEach(c => console.log(`   #${c.symbol}: ${c.rsi.toFixed(2)}`));
+        console.log('--------------------------------------------------\n');
+
+        // Schedule Delist Check (10 minutes after scan)
+        console.log('⏳ Delist kontrolü 10 dakika sonra yapılacak...');
+        setTimeout(() => checkDelistedCoins(), 10 * 60 * 1000);
+
     } catch (e) {
         console.error('Tarama Hatası:', e.message);
     }
 }
 
+async function checkDelistedCoins() {
+    if (chatIds.size === 0) return;
+
+    console.log(`💀 [${new Date().toLocaleTimeString()}] Delist Kontrolü Başlıyor...`);
+    try {
+        const res = await axios.get('https://fapi.binance.com/fapi/v1/exchangeInfo');
+        const now = Date.now();
+
+        // Filter for PERPETUAL contracts with a "soon" delivery date
+        // Standard delivery date is ~2100 (4133404800000). Anything earlier is a scheduled settlement/delist.
+        // REMOVED: s.status === 'TRADING' filter to catch 'SETTLING' or 'PRE_DELIVERING' coins.
+        const delistingCoins = res.data.symbols.filter(s => {
+            return s.contractType === 'PERPETUAL' &&
+                s.deliveryDate > now &&
+                s.deliveryDate < 4000000000000; // Filter out default 2100 date
+        });
+
+        if (delistingCoins.length === 0) {
+            console.log('✅ Planlanmış delist/settlement bulunamadı.');
+            return;
+        }
+
+        let message = '⚠️ *DELIST & SETTLEMENT UYARISI* ⚠️\n\n';
+
+        delistingCoins.forEach(coin => {
+            const delistTime = new Date(coin.deliveryDate);
+            const timeLeft = coin.deliveryDate - now;
+
+            // Calculate time left breakdown
+            const days = Math.floor(timeLeft / (1000 * 60 * 60 * 24));
+            const hours = Math.floor((timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+            const minutes = Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60));
+
+            let timeString = '';
+            if (days > 0) timeString += `${days}g `;
+            if (hours > 0) timeString += `${hours}s `;
+            timeString += `${minutes}d`;
+
+            message += `🔻 *#${coin.symbol}*\n`;
+            message += `📅 Tarih: ${delistTime.toLocaleString('tr-TR')}\n`;
+            message += `⏳ Kalan: ${timeString}\n`;
+            message += `──────────────────\n`;
+        });
+
+        message += `\n_Bu coinler yakın zamanda delist edilecek veya uzlaşıya (settlement) gidecektir. Pozisyonlarınızı kontrol ediniz._`;
+
+        for (const id of chatIds) {
+            bot.sendMessage(id, message, { parse_mode: 'Markdown' });
+        }
+        console.log(`⚠️ ${delistingCoins.length} adet delist uyarısı gönderildi.`);
+
+    } catch (e) {
+        console.error('Delist kontrolü hatası:', e.message);
+    }
+}
+
 async function checkCoin(symbol) {
     try {
-        const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${TIMEFRAME}&limit=100`);
-        const klines = res.data.map(k => ({
+        // Limit 500 yapıldı (Daha hassas RSI için)
+        const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${TIMEFRAME}&limit=500`);
+        let klines = res.data.map(k => ({
             high: parseFloat(k[2]),
             low: parseFloat(k[3]),
             close: parseFloat(k[4]),
             volume: parseFloat(k[5])
         }));
+
+        // Remove the last candle (which is the currently open/incomplete candle)
+        // to rely only on CONFIRMED closed candle data.
+        klines.pop();
 
         if (klines.length < 50) return false;
 
@@ -78,22 +187,27 @@ async function checkCoin(symbol) {
         const stoch = calculateStochRSI(klines, 14, 14, 3, 3);
         const adx = calculateADX(klines, 14);
 
+        // Now 'last' data points refer to the closed candle
         const lastRsi = rsi[rsi.length - 1];
         const lastK = stoch.k[stoch.k.length - 1];
         const lastD = stoch.d[stoch.d.length - 1];
-        const lastAdx = adx[adx.length - 1];
+        // const lastAdx = adx[adx.length - 1];
 
         const price = klines[klines.length - 1].close;
         const prev = klines[klines.length - 2].close;
         const boost = ((price - prev) / prev * 100).toFixed(2);
 
-        const divergence = detectDivergence(klines, rsi, stoch.k);
+        // const divergence = detectDivergence(klines, rsi, stoch.k);
 
         let signalType = null;
 
-        // SCALPER CRITERIA (Focused ONLY on Extreme RSI Values)
-        if (lastRsi <= 20) signalType = 'Buy 🟢';
-        else if (lastRsi >= 80) signalType = 'Sell 🔴';
+        // SCALPER CRITERIA (Updated: Wider Range)
+        if (lastRsi <= 25) signalType = 'Buy 🟢';
+        else if (lastRsi >= 70) signalType = 'Sell 🔴';
+
+        // Track for summary
+        lowestRSI.push({ symbol, rsi: lastRsi });
+        highestRSI.push({ symbol, rsi: lastRsi });
 
         if (signalType) {
             const key = `${symbol}_${signalType}`;
@@ -103,24 +217,13 @@ async function checkCoin(symbol) {
                 const lastVol = klines[klines.length - 1].volume;
                 const avgVol = klines.slice(-11, -1).reduce((s, k) => s + k.volume, 0) / 10;
                 let volStatus = lastVol > (avgVol * 1.05) ? "🔥 YÜKSEK HACİM" : "Normal";
-                let trendStatus = lastAdx > 25 ? "💪 Güçlü Trend" : "Zayıf Trend";
-
-                // DEMA 9 & Yana Mum
-                const closes = klines.map(k => k.close);
-                const dema9 = calculateDEMA(closes, 9);
-                const lastDema9 = dema9[dema9.length - 1];
-                const lastCandle = klines[klines.length - 1];
-                const prevCandle = klines[klines.length - 2];
-                const isYanaMum = Math.abs(lastCandle.close - prevCandle.close) / prevCandle.close < 0.0008;
-                const isNearDema = Math.abs(lastCandle.close - lastDema9) / lastDema9 < 0.0012;
-                const demaAlert = isYanaMum && isNearDema;
 
                 // Multi-Timeframe RSI
-                const rsi1h = await getMTFRSI(symbol, '1h');
+                const rsi15m = await getMTFRSI(symbol, '15m'); // 15m info only
                 const rsi4h = await getMTFRSI(symbol, '4h');
                 const rsi1d = await getMTFRSI(symbol, '1d');
 
-                await sendAlert(symbol, signalType, boost, price, prev, lastRsi, lastK, lastD, volStatus, trendStatus, divergence, demaAlert, rsi1h, rsi4h, rsi1d);
+                await sendAlert(symbol, signalType, boost, price, lastRsi, lastK, lastD, volStatus, rsi15m, rsi4h, rsi1d);
                 return true;
             }
         }
@@ -129,10 +232,11 @@ async function checkCoin(symbol) {
 
 async function getMTFRSI(symbol, interval) {
     try {
-        const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=100`);
-        const klines = res.data.map(k => ({
+        const res = await axios.get(`https://fapi.binance.com/fapi/v1/klines?symbol=${symbol}&interval=${interval}&limit=500`);
+        let klines = res.data.map(k => ({
             close: parseFloat(k[4])
         }));
+        klines.pop(); // Use closed candle
         if (klines.length < 50) return null;
         const rsi = calculateRSI(klines, 14);
         return Math.round(rsi[rsi.length - 1]);
@@ -141,42 +245,42 @@ async function getMTFRSI(symbol, interval) {
     }
 }
 
-async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend, divergence, demaAlert, rsi1h, rsi4h, rsi1d) {
+async function sendAlert(symbol, type, boost, price, rsi, k, d, vol, rsi15m, rsi4h, rsi1d) {
     const now = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
     const binanceUrl = `https://www.binance.com/en/futures/${symbol}`;
 
-    // Divergence warning 
-    let divergenceWarning = '';
-    if (divergence) {
-        const typeStr = divergence === 'bullish' ? 'YUKARIŞ (Bullish)' : 'DÜŞÜŞ (Bearish)';
-        const colorEmoji = divergence === 'bullish' ? '🟢' : '🔴';
-        divergenceWarning = `⚠️ *Uyumsuzluk ${typeStr} ${colorEmoji}*`;
-    }
-
-    // RSI Star & Exclamation Rules
-    let rsiWarning = '';
+    // RSI Star & Exclamation Rules (Updated)
+    // BUY: <=20 (3 Stars), <=23 (2 Stars), <=25 (1 Star)
+    // SELL: >=75 (3 Stars), >=73 (2 Stars), >=70 (1 Star)
+    let rsiWarning = '⭐'; // Default 1 star if triggered
     const roundedRsi = Math.round(rsi);
+
     if (type.includes('Buy')) {
-        if (roundedRsi <= 17) rsiWarning = '⭐⭐';
-        else if (roundedRsi <= 20) rsiWarning = '⭐';
+        if (roundedRsi <= 20) rsiWarning = '⭐⭐⭐';
+        else if (roundedRsi <= 23) rsiWarning = '⭐⭐';
+        else if (roundedRsi <= 25) rsiWarning = '⭐';
     } else {
-        if (roundedRsi >= 85) rsiWarning = '⭐⭐';
-        else if (roundedRsi >= 80) rsiWarning = '⭐';
+        if (roundedRsi >= 75) rsiWarning = '⭐⭐⭐';
+        else if (roundedRsi >= 73) rsiWarning = '⭐⭐';
+        else if (roundedRsi >= 70) rsiWarning = '⭐';
     }
 
     const cleanSymbol = symbol.replace(/[^\x00-\x7F]/g, '');
 
-    const message = `${type.includes('Buy') ? '📈' : '📉'} *[15DK] #${cleanSymbol} ${type.toUpperCase()}*\n` +
+    // 1H Style: Lighter emojis (Blue/Orange), Less Bold to simulate "smaller/lighter" text
+    const trendEmoji = type.includes('Buy') ? '🔹' : '🔸';
+
+    const message = `${trendEmoji} *[1 Saatlik Sinyal]*\n` +
+        `#${cleanSymbol} ${type.toUpperCase()}\n` +
         `──────────────────\n` +
-        `• *Fiyat:* ${price.toFixed(4)}\n` +
-        `• *15dk RSI:* ${roundedRsi} ${rsiWarning} (Sinyal)\n` +
-        `• *1 Saatlik RSI:* ${rsi1h}\n` +
-        `• *4 Saatlik RSI:* ${rsi4h}\n` +
-        `• *Günlük RSI:* ${rsi1d}\n` +
-        `• *Stoch:* ${Math.round(k)}(K)/${Math.round(d)}(D)\n` +
-        `• *Hacim:* ${vol}\n` +
+        `Fiyat: ${price.toFixed(4)} (${boost > 0 ? '+' : ''}${boost}%)\n` +
+        `RSI (1s): ${roundedRsi} ${rsiWarning}\n` +
+        `RSI (15d): ${rsi15m}\n` +
+        `RSI (4s): ${rsi4h}\n` +
+        `Stoch: ${Math.round(k)}/${Math.round(d)}\n` +
+        `Hacim: ${vol}\n` +
         `──────────────────\n` +
-        `🔗 [Binance Futures](${binanceUrl}) | ⏰ ${now}`;
+        `🔗 [Binance](${binanceUrl}) | ⏰ ${now}`;
 
     for (const id of chatIds) {
         bot.sendMessage(id, message, {
@@ -185,9 +289,6 @@ async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend
         });
     }
 }
-
-// AI Analysis Function - GEMINI SUSPENDED
-async function getAIAnalysis() { return null; }
 
 // --- MATH HELPERS ---
 function calculateRSI(d, p) {
@@ -216,8 +317,6 @@ function calculateStochRSI(d, rP, sP, kP, dP) {
         if (h === low) {
             s.push(100);
         } else {
-            // Logaritmik Normalizasyon: ln(curr/low) / ln(high/low)
-            // RSI değerlerinin 0'dan büyük olmasını garanti ediyoruz (RSI her zaman 0-100 arasıdır, 0.01 ekleyerek güvenliğe alıyoruz)
             const safeR = Math.max(r[i - 1], 0.01);
             const safeL = Math.max(low, 0.01);
             const safeH = Math.max(h, 0.01);
@@ -279,38 +378,17 @@ function detectDivergence(klines, rsi, stochK) {
     return null;
 }
 
-function calculateEMA(data, period) {
-    if (data.length === 0) return [];
-    const k = 2 / (period + 1);
-    let ema = [data[0]];
-    for (let i = 1; i < data.length; i++) {
-        ema.push(data[i] * k + ema[ema.length - 1] * (1 - k));
-    }
-    return ema;
-}
-
-function calculateDEMA(data, period) {
-    if (data.length < period * 2) return new Array(data.length).fill(0);
-    const ema1 = calculateEMA(data, period);
-    const ema2 = calculateEMA(ema1, period);
-    const dema = [];
-    for (let i = 0; i < ema1.length; i++) {
-        dema.push(2 * ema1[i] - ema2[i]);
-    }
-    return dema;
-}
-
 /**
- * Schedule scan to run exactly at the beginning of every 15-minute candle
+ * Schedule scan to run exactly at the beginning of every 1-hour candle
  */
 function scheduleNextScan() {
     const now = Date.now();
-    const intervalMs = 15 * 60 * 1000;
+    const intervalMs = 60 * 60 * 1000;
     const nextScan = Math.ceil(now / intervalMs) * intervalMs;
     // Delay slightly (5s) after the candle opens to ensure exchange data is ready
     const delay = nextScan - now + 5000;
 
-    console.log(`⏰ Bir sonraki tarama ${new Date(nextScan).toLocaleTimeString()} saatinde yapılacak.`);
+    console.log(`⏰ Bir sonraki tarama ${new Date(nextScan).toLocaleTimeString()} saatinde yap\u0131lacak.`);
     setTimeout(async () => {
         await performScan();
         scheduleNextScan();
