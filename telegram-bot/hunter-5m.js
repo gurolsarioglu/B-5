@@ -120,7 +120,7 @@ async function checkCoin(symbol) {
                 const rsi4h = await getMTFRSI(symbol, '4h');
                 const rsi1d = await getMTFRSI(symbol, '1d');
 
-                await sendAlert(symbol, signalType, boost, price, prev, lastRsi, lastK, lastD, volStatus, trendStatus, divergence, demaAlert, rsi1h, rsi4h, rsi1d);
+                await sendAlert(symbol, signalType, boost, price, prev, lastRsi, lastK, lastD, volStatus, trendStatus, demaAlert, rsi1h, rsi4h, rsi1d);
                 return true;
             }
         }
@@ -141,17 +141,9 @@ async function getMTFRSI(symbol, interval) {
     }
 }
 
-async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend, divergence, demaAlert, rsi1h, rsi4h, rsi1d) {
+async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend, demaAlert, rsi1h, rsi4h, rsi1d) {
     const now = new Date().toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
     const binanceUrl = `https://www.binance.com/en/futures/${symbol}`;
-
-    // Divergence warning 
-    let divergenceWarning = '';
-    if (divergence) {
-        const typeStr = divergence === 'bullish' ? 'YUKARIŞ (Bullish)' : 'DÜŞÜŞ (Bearish)';
-        const colorEmoji = divergence === 'bullish' ? '🟢' : '🔴';
-        divergenceWarning = `⚠️ *Uyumsuzluk ${typeStr} ${colorEmoji}*`;
-    }
 
     // RSI Star & Exclamation Rules
     let rsiWarning = '';
@@ -168,6 +160,7 @@ async function sendAlert(symbol, type, boost, price, prev, rsi, k, d, vol, trend
 
     const message = `${type.includes('Buy') ? '📈' : '📉'} *[15DK] #${cleanSymbol} ${type.toUpperCase()}*\n` +
         `──────────────────\n` +
+        (demaAlert ? '🧘 *Yana Mum / DEMA Tespiti*\n' : '') +
         `• *Fiyat:* ${price.toFixed(4)}\n` +
         `• *15dk RSI:* ${roundedRsi} ${rsiWarning} (Sinyal)\n` +
         `• *1 Saatlik RSI:* ${rsi1h}\n` +
